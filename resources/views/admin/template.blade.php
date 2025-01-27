@@ -396,7 +396,7 @@
                                 <ul>
 
                                     <li class="
-             menu-item-has-children 
+             menu-item-has-children
               ">
                                         <!--  Single menu -->
 
@@ -501,7 +501,7 @@
                                     </li>
 
                                     <li class="
-             menu-item-has-children 
+             menu-item-has-children
               ">
                                         <!--  Single menu -->
 
@@ -1412,7 +1412,7 @@
                                     </li>
 
                                     <li class="
-             menu-item-has-children 
+             menu-item-has-children
               ">
                                         <!--  Single menu -->
 
@@ -1475,7 +1475,7 @@
                                     </li>
 
                                     <li class="
-             menu-item-has-children 
+             menu-item-has-children
               ">
                                         <!--  Single menu -->
 
@@ -1848,7 +1848,7 @@
     <script src="{{ asset('assets/js/app.js') }}"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-growl/1.0.0/jquery.bootstrap-growl.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js" integrity="sha512-xIPqqrfvUAc/Cspuj7Bq0UtHNo/5qkdyngx6Vwt+tmbvTLDszzXM0G6c91LXmGrRx8KEPulT+AfOOez+TeVylg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    
+
     <script>
      $(document).ready(function () {
         $('#imageSubmitform').submit(function () {
@@ -1885,7 +1885,10 @@
                     $('#AjaxLoaderDiv').fadeOut('slow');
                     $('#overlay').fadeOut('fast');
                     $('#loadingSpinner').hide();
-
+                    $.post('/log-error', {
+                        error: error,
+                        _token: $('meta[name="csrf-token"]').attr('content')
+                    });
                     $.bootstrapGrowl("Internal Server Error!", { type: 'danger error-msg', delay: 4000 });
                 }
             });
@@ -1925,7 +1928,7 @@
         var text_input = parentDiv.querySelector(".text-suggest");
         var suggestion_alert = parentDiv.querySelector(".suggestion").querySelector("span");
 
-        
+
 
         const formData = {
             text: text_input.value,
@@ -1948,7 +1951,7 @@
     function correctGrammar(temp)
     {
         var grammar_check = temp.querySelector("span").innerText
-        temp.parentElement.parentElement.parentElement.querySelector('.text-suggest').value = grammar_check; 
+        temp.parentElement.parentElement.parentElement.querySelector('.text-suggest').value = grammar_check;
         temp.parentElement.parentElement.style.display = 'none';
     }
 
@@ -1960,7 +1963,7 @@
         var text_input = parentDiv.querySelector(".text-suggest");
         var suggestion_alert = parentDiv.querySelector(".suggestion").querySelector("span");
 
-        
+
 
         const formData = {
             text: text_input.value,
