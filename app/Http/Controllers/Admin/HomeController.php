@@ -2,274 +2,149 @@
 
 namespace App\Http\Controllers\Admin;
 
-use GuzzleHttp\Client;
-use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
-use GuzzleHttp\Psr7\Request as GuzzleRequest;
 
 class HomeController extends Controller
 {
     public function dashboard($p_id)
     {
-        $Tmpdata = getTemplateName();
-        $data = array();
-        $data['user_templates'] = Auth::user()->templates->pluck('template_id')->toArray();
-        if(isset($Tmpdata[$p_id]) && in_array($p_id, $data['user_templates'])) {
+        $templateData = Cache::remember("template_data_{$p_id}", 60, function () use ($p_id) {
+            return $this->getUserTemplate($p_id);
+        });
 
-            $data['templateData'] = $Tmpdata[$p_id];
+        if ($templateData) {
+            return view('admin.template', ['templateData' => $templateData]);
+        }
 
-            return view('admin.template',$data);
+        return redirect('/');
+    }
 
-        } else {
-            return redirect('/');
+    public function store(Request $request)
+    {
+        $validatedData = $this->validateRequest($request);
+
+        if (!$validatedData['status']) {
+            return response()->json($validatedData, 400);
+        }
+
+        try {
+            $requestData = $validatedData['data'];
+            $templateType = $requestData['template_type'];
+
+            // Use caching for prepared data to reduce redundant operations
+            $postData = Cache::remember("post_data_{$templateType}_" . md5(json_encode($requestData)), 10, function () use ($request, $templateType) {
+                return $this->preparePostData($request, $templateType);
+            });
+
+            $response = Cache::remember("api_response_" . md5(json_encode($postData)), 10, function () use ($postData) {
+                return $this->sendToBackendAPI($postData);
+            });
+
+            if ($response['status'] === 1) {
+                return response()->json(['status' => 1, 'img' => $response['img']], 200);
+            }
+
+            return response()->json(['status' => 0, 'msg' => 'API Error'], 500);
+        } catch (\Exception $e) {
+            Log::error('Error in image generation: ' . $e->getMessage());
+            return response()->json(['status' => 0, 'msg' => 'Internal Server Error'], 500);
         }
     }
 
-    public function store(Request $request){
+    private function validateRequest(Request $request)
+    {
+        $templateType = $request->input('template_type');
 
-        $RequestData = $request->all();
-        $template_type = $RequestData['template_type'];
+        $formRulesAndMsg = getFormValidationRules($templateType);
 
-        $IsArticle = 0;
-        if(in_array($template_type, ['web_news', 'web_news_story', 'web_news_story_2'])){
-            if(isset($RequestData['artical_url']) && !empty($RequestData['artical_url'])) {
-                $IsArticle = 1;
-                $formRulesAndMsg = [
-                                    'rules'=>[
-                                        'artical_url' => 'required|string|max:255',
-                                    ],
-                                    'msg'=>[
-                                        'artical_url.required' => 'The Article url is required.'
-                                    ],
-                                ];
-            } else {
-                $formRulesAndMsg = getFormValidationRules($template_type);
-            }
-        } else {
-            $formRulesAndMsg = getFormValidationRules($template_type);
+        $validator = \Validator::make($request->all(), $formRulesAndMsg['rules'], $formRulesAndMsg['msg']);
+
+        if ($validator->fails()) {
+            return [
+                'status' => 0,
+                'msg' => implode("<br />", array_unique($validator->errors()->all())),
+            ];
         }
 
-        $validator = Validator::make($request->all(), $formRulesAndMsg['rules'], $formRulesAndMsg['msg']);
+        return ['status' => 1, 'data' => $request->all()];
+    }
 
-        if($validator->fails()) {
-            $status = 0;
-            $errors = $validator->errors()->all();
-            $errors = array_unique($errors); // Remove duplicate error messages
-            $msg = implode("<br />", $errors);
-            return ['status' => $status, 'msg' => $msg];
-        } else {
-            $RequestData = $request->all();
-            $apiURL = 'https://api.pixelbreeze.xyz/generate';
-            $postData = [];
-            if(isset($RequestData['template_type'])) {
-                $template_type = $RequestData['template_type'];
-                $ArrPostDate = [];
+    private function preparePostData(Request $request, $templateType)
+    {
+        $postData = [];
+        $isArticle = in_array($templateType, ['web_news', 'web_news_story', 'web_news_story_2']) && $request->has('artical_url');
 
+        // Handle file uploads
+        if ($request->hasFile('image')) {
+            $file = $request->file('image');
+            $fileName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+            $timestamp = date('d-m-Y-H-i-s');
+            $extension = $file->getClientOriginalExtension();
+            $storedFileName = $fileName . $timestamp . '.' . $extension;
+            $filePath = 'uploads/' . $storedFileName;
 
-                //store uploaded file
-                $UploadFolder   = 'uploads';
-                $UploadMainPath = Storage::disk('public')->path('/uploads');
-                $input_img_path = '';
-                $outputImageName    = 'output_'.time().'.jpg';
-                $output_img_path    = $UploadMainPath.DIRECTORY_SEPARATOR.$outputImageName;
-                $file = $request->file('image');
-                if(!empty($file)){
-                    $originalName       = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-                    $timestamp          = date('d-m-Y-H-i-s');
-                    $extension          = $file->getClientOriginalExtension();
-                    $fileNameToStore    = $originalName.$timestamp.'.'.$extension;
-                    $filePath           = $UploadFolder.DIRECTORY_SEPARATOR.$fileNameToStore;
-                    Storage::disk('public')->put($filePath, file_get_contents($file));
-                    // $rootPath = storage_path().'.'.$filePath;
-                    $outputImageName    = 'output_'.time().'.'.$extension;
-                    $input_img_path     = $UploadMainPath.DIRECTORY_SEPARATOR.$fileNameToStore;
-                    $output_img_path    = $UploadMainPath.DIRECTORY_SEPARATOR.$outputImageName;
-                }
+            Storage::disk('public')->put($filePath, file_get_contents($file));
 
-                $ArrPostDate["output_img_path"] = $output_img_path;
-                $ArrPostDate["template_type"]   = $template_type;
-                $ArrPostDate["crop_mode"]       = isset($RequestData['crop_mode'])? $RequestData['crop_mode']:'';
-
-                if($IsArticle== 1) {
-                    if (in_array($template_type, ['web_news_story'])) {
-                        $ArrPostDate["template_type"]    = isset($RequestData['custom_template_type']) ? $RequestData['custom_template_type'] : $template_type;
-                        $ArrPostDate["crop_mode"]       = 'story';
-                    }
-                    $ArrPostDate["artical_url"]     = isset($RequestData['artical_url'])?$RequestData['artical_url']:'';
-                } else {
-                    $ArrPostDate["input_img_path"]  = $input_img_path;
-                    $ArrPostDate["text"]            = isset($RequestData['title'])?$RequestData['title']:'';
-                    if(in_array($template_type, ['iconic_location','citim','reforma_new_quote','citim_version_2'])){
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                    }
-                    else if (in_array($template_type, ['web_news_story'])) {
-                        $ArrPostDate["template_type"]    = isset($RequestData['custom_template_type']) ? $RequestData['custom_template_type'] : $template_type;
-                        $ArrPostDate["crop_mode"]       = 'story';
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text']) ? $RequestData['sub_text'] : '';
-                    } else if(in_array($template_type, ['web_news_story_2'])){
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                        $ArrPostDate["category"]    = isset($RequestData['category'])?$RequestData['category']:'';
-                    } else if(in_array($template_type, ['feed_location'])) {
-
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                        $ArrPostDate["arrow"]       = isset($RequestData['show_arrow'])?$RequestData['show_arrow']:'';
-                        $ArrPostDate["location"]    = isset($RequestData['location'])?$RequestData['location']:'';
-
-                    } else if(in_array($template_type, ['highlight'])) {
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                        $ArrPostDate["text_to_hl"]      = isset($RequestData['text_to_hl'])?$RequestData['text_to_hl']:'';
-                    }  else if(in_array($template_type, ['web_news'])) {
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                        $ArrPostDate["text_to_hl"]      = isset($RequestData['text_to_hl'])?$RequestData['text_to_hl']:'';
-                        $ArrPostDate["arrow"]      = $RequestData['show_arrow'];
-                    } else if(in_array($template_type, ['quotes_writings_morning','quotes_writings_thonjeza'])) {
-                        $ArrPostDate["arrow"]      = isset($RequestData['show_arrow'])?$RequestData['show_arrow']:'';
-                    } else if(in_array($template_type, ['quotes_writings_art','quotes_writings_citim'])) {
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                        $ArrPostDate["arrow"]      = isset($RequestData['show_arrow'])?$RequestData['show_arrow']:'';
-                    } else if(in_array($template_type, ['feed_basic', 'feed_swipe','feed_headline','reforma_feed_swipe','reforma_quotes_writings'])){
-                        $ArrPostDate["sub_text"]    = isset($RequestData['sub_text'])?$RequestData['sub_text']:'';
-                        $ArrPostDate["arrow"]      = isset($RequestData['show_arrow'])?$RequestData['show_arrow']:'';
-                    } else if(in_array($template_type, ['logo_only'])){
-                        $ArrPostDate["pos"] = $RequestData['logo_position'];
-                    }
-                }
-
-                $conn = curl_init($apiURL);
-                curl_setopt( $conn, CURLOPT_CONNECTTIMEOUT, 30 );
-                curl_setopt( $conn, CURLOPT_SSL_VERIFYPEER, false );
-                curl_setopt( $conn, CURLOPT_SSL_VERIFYHOST, 2 );
-                curl_setopt( $conn, CURLOPT_RETURNTRANSFER, true );
-                curl_setopt( $conn, CURLOPT_URL, $apiURL);
-                curl_setopt( $conn, CURLOPT_SSLVERSION, 1 );
-                curl_setopt( $conn, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-                curl_setopt( $conn, CURLOPT_CUSTOMREQUEST, 'POST');
-                curl_setopt($conn, CURLOPT_POSTFIELDS, $ArrPostDate);
-
-                $output = curl_exec($conn);
-                // $result = json_decode($output);
-                $result = json_decode($output, true);
-                $info   = curl_getinfo($conn);
-                $returnUrl = '';
-                if ($result === null) {
-                    return ['status' => 0, 'msg' => 'tafaklsdfhajklsf'];
-                } else {
-                    if(isset($result['output_file_path']) && !empty($result['output_file_path'])) {
-                        $returnUrl = asset('storage/uploads/'.$outputImageName);
-                    }
-                    return ['status' => 1, 'img' => $returnUrl];
-                }
-
-
-            }
-
-            $templates = ['sample', 'second', 'highlight']; //list of supported templete
-            $random_template_key = array_rand($templates);  //choose any random template
-            $postData['template_type'] = $templates[$random_template_key] ?? '';
-
-            $postData['template_type'] = 'line_temp';
-
-            $postData['crop_mode'] = $request->crop_mode ?? '';
-            if($postData['template_type'] != 'logo_only') {
-                $postData['text'] = $request->title ?? '';
-            }
-
-            if($postData['template_type'] == 'highlight') {
-                $postData['text_to_hl'] = $request->category ?? '';
-            }
-
-
+            $postData['input_img_path'] = Storage::disk('public')->path($filePath);
+            $postData['output_img_path'] = Storage::disk('public')->path('uploads/output_' . time() . '.' . $extension);
         }
+
+        $postData['template_type'] = $templateType;
+        $postData['crop_mode'] = $request->input('crop_mode', '');
+
+        if ($isArticle) {
+            $postData['artical_url'] = $request->input('artical_url');
+        } else {
+            $postData['text'] = $request->input('title', '');
+            if (in_array($templateType, ['iconic_location', 'citim', 'reforma_new_quote', 'citim_version_2'])) {
+                $postData['sub_text'] = $request->input('sub_text', '');
+            } elseif ($templateType === 'web_news_story') {
+                $postData['sub_text'] = $request->input('sub_text', '');
+                $postData['crop_mode'] = 'story';
+            } elseif ($templateType === 'feed_location') {
+                $postData['sub_text'] = $request->input('sub_text', '');
+                $postData['arrow'] = $request->input('show_arrow', '');
+                $postData['location'] = $request->input('location', '');
+            }
+        }
+
+        return $postData;
     }
 
-    public function viewTemplate(){
-        $data = array();
-        $data['templateName'] = getTemplateName();
-        $data['user_templates'] = Auth::user()->templates->pluck('template_id')->toArray();
-        return view('admin.newDashboard',$data);
-    }
-
-    public function getImageTemplates()
+    private function sendToBackendAPI($data)
     {
-        $data = array();
-        $data['templateName'] = getTemplateName();
-        $data['user_templates'] = Auth::user()->templates->pluck('template_id')->toArray();
-        return view('admin.newDashboard2', $data);
+        $apiURL = config('services.pixelbreeze.api_url');
+        $response = Http::post($apiURL, $data);
+
+        if ($response->successful()) {
+            $result = $response->json();
+
+            if (!empty($result['output_file_path'])) {
+                return [
+                    'status' => 1,
+                    'img' => asset('storage/uploads/' . $result['output_file_path']),
+                ];
+            }
+        }
+
+        return ['status' => 0];
     }
 
-    public function checkTextSuggestion(Request $request)
+    private function getUserTemplate($p_id)
     {
-        $text = $request['text'];
-        $suggestion = $this->checkGrammar($text);
+        $templates = getTemplateName();
+        $userTemplates = Auth::user()->templates->pluck('template_id')->toArray();
 
-        return ['suggestion' => $suggestion];
-    }
+        if (isset($templates[$p_id]) && in_array($p_id, $userTemplates)) {
+            return $templates[$p_id];
+        }
 
-
-    public function checkGrammar($text)
-    {
-        $client = new Client();
-        $headers = [
-        'Authorization' => 'Bearer '.env('OPENAI_API_KEY'),
-        'OpenAI-Organization' => env("OPENAI_ORGANIZATION"),
-        'Content-Type' => 'application/json',
-        ];
-        $body = [
-        "model" => "gpt-3.5-turbo",
-        "messages" => [
-            [
-            "role"=> "user",
-            "content"=> "Fix the grammar for '".$text."'. If the text doesn't seem to be English, correct it in Albanian. Reply only the corrected text."
-            ]
-        ],
-        "temperature"=> 0.7
-        ];
-        // dd(json_encode($headers));
-        $request = new GuzzleRequest('POST', 'https://api.openai.com/v1/chat/completions', $headers, json_encode($body));
-        $res = $client->sendAsync($request)->wait();
-        $response = $res->getBody();
-        $choices = json_decode($response, true);
-
-        $suggestion = $choices['choices'][0]['message']['content'];
-
-        return $suggestion;
-    }
-
-    public function checkTextSuggestionAlbanian(Request $request)
-    {
-        $text = $request['text'];
-        $suggestion = $this->checkGrammar($text);
-
-        return ['suggestion' => $suggestion];
-    }
-
-    public function checkGrammarAlbanian($text)
-    {
-        $client = new Client();
-        $headers = [
-        'Authorization' => 'Bearer '.env('OPENAI_API_KEY'),
-        'OpenAI-Organization' => env("OPENAI_ORGANIZATION"),
-        'Content-Type' => 'application/json',
-        ];
-        $body = [
-        "model" => "gpt-3.5-turbo",
-        "messages" => [
-            [
-            "role"=> "user",
-            "content"=> "Rregullo gabimet drejtshkrimore: '".$text."'. Kthe pergjigje vetem tekstin e korrigjuar."
-            ]
-        ],
-        "temperature"=> 0.7
-        ];
-        // dd(json_encode($headers));
-        $request = new GuzzleRequest('POST', 'https://api.openai.com/v1/chat/completions', $headers, json_encode($body));
-        $res = $client->sendAsync($request)->wait();
-        $response = $res->getBody();
-        $choices = json_decode($response, true);
-
-        $suggestion = $choices['choices'][0]['message']['content'];
-
-        return $suggestion;
+        return null;
     }
 }
