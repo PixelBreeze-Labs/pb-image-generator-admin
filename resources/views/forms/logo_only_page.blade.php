@@ -160,7 +160,7 @@
                                                     </form>
                                                 </div>
                                             </div>
-                                                        
+
 
                                             <!-- Sized Inputs -->
                                             <div class="card">
@@ -174,7 +174,7 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        
+
                                     </div>
 
                                 </div>
@@ -229,10 +229,14 @@
                     {
                         $('#submitBtn').attr('disabled',false);
                         $('#AjaxLoaderDiv').fadeOut('slow');
+                        $.post('/log-error', {
+                            error: error,
+                            _token: $('meta[name="csrf-token"]').attr('content')
+                        });
                         $.bootstrapGrowl("Internal Server Error!", {type: 'danger error-msg', delay: 4000});
                     }
                 });
-                
+
                 return false;
             });
         });

@@ -115,43 +115,57 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-growl/1.0.0/jquery.bootstrap-growl.js"></script>
     <script>
         $(document).ready(function() {
-            $('#imageSubmitform').submit(function() {
-                $('#submitBtn').attr('disabled', true);
-                $('#AjaxLoaderDiv').fadeIn('slow');
+            const form = $('#imageSubmitform');
+            const loader = $('#AjaxLoaderDiv');
+            const submitBtn = $('#submitBtn');
+            const preview = $('#NewImgSet');
+            const downloadBtn = $('#NewImgDownload');
+
+            form.submit(function(e) {
+                e.preventDefault();
+
+                // Disable submit and show loader
+                submitBtn.prop('disabled', true);
+                loader.fadeIn('slow');
 
                 $.ajax({
                     type: "POST",
-                    url: $(this).attr("action"),
+                    url: form.attr("action"),
                     data: new FormData(this),
                     contentType: false,
                     processData: false,
                     enctype: 'multipart/form-data',
                     success: function(result) {
-                        $('#submitBtn').attr('disabled', false);
-                        $('#AjaxLoaderDiv').fadeOut('slow');
-                        if (result.status == 1) {
-                            $("#NewImgSet").attr("src", result.img);
-                            $("#NewImgDownload").attr("href", result.img);
-                            $("#NewImgSet").show();
+                        if (result.status === 1) {
+                            // Update preview and download link
+                            preview.attr("src", result.img).show();
+                            downloadBtn.attr("href", result.img);
                         } else {
-                            $.bootstrapGrowl(result.msg, {
-                                type: 'danger error-msg',
-                                delay: 4000
-                            });
+                            showError(result.msg);
                         }
                     },
                     error: function(error) {
-                        $('#submitBtn').attr('disabled', false);
-                        $('#AjaxLoaderDiv').fadeOut('slow');
-                        $.bootstrapGrowl("Internal Server Error!", {
-                            type: 'danger error-msg',
-                            delay: 4000
+                        // Log error and show message
+                        $.post('/log-error', {
+                            error: error,
+                            _token: $('meta[name="csrf-token"]').attr('content')
                         });
+                        showError("Internal Server Error!");
+                    },
+                    complete: function() {
+                        // Re-enable submit and hide loader
+                        submitBtn.prop('disabled', false);
+                        loader.fadeOut('slow');
                     }
                 });
-
-                return false;
             });
+
+            function showError(message) {
+                $.bootstrapGrowl(message, {
+                    type: 'danger error-msg',
+                    delay: 4000
+                });
+            }
         });
     </script>
 </body>

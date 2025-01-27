@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Http\Request;  // Shto këtë në fillim
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -24,6 +25,10 @@ Route::namespace('App\Http\Controllers')->controller(DashboardController::class)
 
  Route::get('/admin', function () {
     return view('calander');
-}); 
+});
+
+Route::post('/log-error', function(Request $request) {
+    \Log::error($request->error);
+});
 
 
