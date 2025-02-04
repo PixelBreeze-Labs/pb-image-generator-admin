@@ -1850,52 +1850,94 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js" integrity="sha512-xIPqqrfvUAc/Cspuj7Bq0UtHNo/5qkdyngx6Vwt+tmbvTLDszzXM0G6c91LXmGrRx8KEPulT+AfOOez+TeVylg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <script>
-     $(document).ready(function () {
-        $('#imageSubmitform').submit(function () {
-            $('#submitBtn').attr('disabled', true);
-            $('#AjaxLoaderDiv').fadeIn('slow');
-            $('#overlay').fadeIn('fast');
+        $(document).ready(function () {
+            $('#imageSubmitform').submit(function () {
+                // Log form submission
+                $.post('/log-info', {
+                    info: {
+                        step: 'submission_start',
+                        template_type: $('input[name="template_type"]').val(),
+                        timestamp: new Date().toISOString()
+                    },
+                    _token: $('meta[name="csrf-token"]').attr('content')
+                });
 
-            $.ajax({
-                type: "POST",
-                url: $(this).attr("action"),
-                data: new FormData(this),
-                contentType: false,
-                processData: false,
-                enctype: 'multipart/form-data',
-                beforeSend: function () {
-                    // Show loading spinner
-                    $('#loadingSpinner').show();
-                },
-                success: function (result) {
-                    $('#submitBtn').attr('disabled', false);
-                    $('#AjaxLoaderDiv').fadeOut('slow');
-                    $('#overlay').fadeOut('fast');
-                    $('#loadingSpinner').hide();
+                $('#submitBtn').attr('disabled', true);
+                $('#AjaxLoaderDiv').fadeIn('slow');
+                $('#overlay').fadeIn('fast');
 
-                    if (result.status == 1) {
-                        $("#NewImgSet").attr("src", result.img);
-                        $("#NewImgSet").show();
-                    } else {
-                        $.bootstrapGrowl(result.msg, { type: 'danger error-msg', delay: 4000 });
+                $.ajax({
+                    type: "POST",
+                    url: $(this).attr("action"),
+                    data: new FormData(this),
+                    contentType: false,
+                    processData: false,
+                    enctype: 'multipart/form-data',
+                    beforeSend: function () {
+                        $('#loadingSpinner').show();
+                    },
+                    success: function (result) {
+                        $('#submitBtn').attr('disabled', false);
+                        $('#AjaxLoaderDiv').fadeOut('slow');
+                        $('#overlay').fadeOut('fast');
+                        $('#loadingSpinner').hide();
+
+                        if (result.status == 1) {
+                            // Log success
+                            $.post('/log-info', {
+                                info: {
+                                    step: 'success',
+                                    image: result.img,
+                                    timestamp: new Date().toISOString()
+                                },
+                                _token: $('meta[name="csrf-token"]').attr('content')
+                            });
+
+                            $("#NewImgSet").attr("src", result.img);
+                            $("#NewImgSet").show();
+                        } else {
+                            // Log business error
+                            $.post('/log-error', {
+                                error: {
+                                    type: 'business_logic',
+                                    message: result.msg,
+                                    timestamp: new Date().toISOString()
+                                },
+                                _token: $('meta[name="csrf-token"]').attr('content')
+                            });
+                            $.bootstrapGrowl(result.msg, { type: 'danger error-msg', delay: 4000 });
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        $('#submitBtn').attr('disabled', false);
+                        $('#AjaxLoaderDiv').fadeOut('slow');
+                        $('#overlay').fadeOut('fast');
+                        $('#loadingSpinner').hide();
+
+                        // Log technical error
+                        $.post('/log-error', {
+                            error: {
+                                type: 'ajax_error',
+                                status: xhr.status,
+                                statusText: xhr.statusText,
+                                responseText: xhr.responseText,
+                                url: $(this).attr("action"),
+                                error: error,
+                                timestamp: new Date().toISOString()
+                            },
+                            _token: $('meta[name="csrf-token"]').attr('content')
+                        });
+
+                        $.bootstrapGrowl("Internal Server Error!", {
+                            type: 'danger error-msg',
+                            delay: 4000
+                        });
                     }
-                },
-                error: function (error) {
-                    $('#submitBtn').attr('disabled', false);
-                    $('#AjaxLoaderDiv').fadeOut('slow');
-                    $('#overlay').fadeOut('fast');
-                    $('#loadingSpinner').hide();
-                    $.post('/log-error', {
-                        error: error,
-                        _token: $('meta[name="csrf-token"]').attr('content')
-                    });
-                    $.bootstrapGrowl("Internal Server Error!", { type: 'danger error-msg', delay: 4000 });
-                }
-            });
+                });
 
-            return false;
+                return false;
+            });
         });
-    });
 
 
     document.getElementById('NewImgDownload').addEventListener('click', function() {
