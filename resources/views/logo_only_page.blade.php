@@ -230,7 +230,12 @@
                         $('#submitBtn').attr('disabled',false);
                         $('#AjaxLoaderDiv').fadeOut('slow');
                         $.post('/log-error', {
-                            error: error,
+                            error: {
+                                status: error.status,
+                                statusText: error.statusText,
+                                responseText: error.responseText,
+                                url: error.responseURL
+                            },
                             _token: $('meta[name="csrf-token"]').attr('content')
                         });
                         $.bootstrapGrowl("Internal Server Error!", {type: 'danger error-msg', delay: 4000});

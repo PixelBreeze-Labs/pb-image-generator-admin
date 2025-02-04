@@ -2,6 +2,10 @@
 
 use Illuminate\Http\Request;  // Shto këtë në fillim
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ErrorLogController;
+use App\Http\Controllers\InfoLogController;
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -27,8 +31,11 @@ Route::namespace('App\Http\Controllers')->controller(DashboardController::class)
     return view('calander');
 });
 
-Route::post('/log-error', function(Request $request) {
-    \Log::error($request->error);
-});
+//Route::post('/log-error', function(Request $request) {
+//    \Log::error($request->error);
+//});
+
+Route::post('/log-error', [ErrorLogController::class, 'logError'])->name('log.error');
+Route::post('/log-info', [InfoLogController::class, 'logInfo'])->name('log.info');
 
 

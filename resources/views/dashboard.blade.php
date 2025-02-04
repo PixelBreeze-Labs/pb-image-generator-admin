@@ -107,6 +107,7 @@
                 </div>
             </footer>
             <!-- END: Footer For Desktop and tab -->
+        </div>
     </main>
     <!-- scripts -->
     <script src="{{ asset('assets/js/jquery-3.6.0.min.js') }}"></script>
@@ -124,6 +125,16 @@
             form.submit(function(e) {
                 e.preventDefault();
 
+                // Log form submission
+                $.post('/log-info', {
+                    info: {
+                        step: 'submission_start',
+                        template_type: $('input[name="template_type"]').val(),
+                        timestamp: new Date().toISOString()
+                    },
+                    _token: $('meta[name="csrf-token"]').attr('content')
+                });
+
                 // Disable submit and show loader
                 submitBtn.prop('disabled', true);
                 loader.fadeIn('slow');
@@ -137,17 +148,42 @@
                     enctype: 'multipart/form-data',
                     success: function(result) {
                         if (result.status === 1) {
+                            // Log success
+                            $.post('/log-info', {
+                                info: {
+                                    step: 'success',
+                                    image: result.img,
+                                    timestamp: new Date().toISOString()
+                                },
+                                _token: $('meta[name="csrf-token"]').attr('content')
+                            });
                             // Update preview and download link
                             preview.attr("src", result.img).show();
                             downloadBtn.attr("href", result.img);
                         } else {
+                            // Log business error
+                            $.post('/log-error', {
+                                error: {
+                                    type: 'business_logic',
+                                    message: result.msg,
+                                    timestamp: new Date().toISOString()
+                                },
+                                _token: $('meta[name="csrf-token"]').attr('content')
+                            });
                             showError(result.msg);
                         }
                     },
-                    error: function(error) {
+                    error: function(xhr, status, error) {
                         // Log error and show message
                         $.post('/log-error', {
-                            error: error,
+                            error: {
+                                type: 'ajax_error',
+                                status: xhr.status,
+                                statusText: xhr.statusText,
+                                url: form.attr("action"),
+                                error: error,
+                                timestamp: new Date().toISOString()
+                            },
                             _token: $('meta[name="csrf-token"]').attr('content')
                         });
                         showError("Internal Server Error!");

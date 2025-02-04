@@ -60,12 +60,15 @@ class HomeController extends Controller
             return ['status' => $status, 'msg' => $msg];
         } else {
             $RequestData = $request->all();
-            $apiURL = 'https://api.pixelbreeze.xyz/generate';
+            $apiURL = 'https://stageapi.pixelbreeze.xyz/generate';
             $postData = [];
             if(isset($RequestData['template_type'])) {
                 $template_type = $RequestData['template_type'];
                 $ArrPostDate = [];
 
+
+                $sessionId = 'session_'.time();
+                $ArrPostDate['session_id'] = $sessionId;
 
                 //store uploaded file
                 $UploadFolder   = 'uploads';
